@@ -66,22 +66,39 @@ class MixtureModel:
 
     def _determine_objective_function(self, data):
         nd = len(self.dists)
-        xvals = np.array([np.percentile(data, p) for p in range(0,101)])        
-        self.cdf_fun = lambda p: np.dot(p[-nd:],np.stack([d.cdf(xvals, *p[self.slices[i]]) for i,d in enumerate(self.dists)]))
-        pp = np.array(range(0,101))/100.
-        self.obj_fun = lambda p: np.sum((self.cdf_fun(p) - pp)**2)
+        self.xvals = np.array([np.percentile(data, p) for p in range(0,101)])        
+        self.cdf_fun = lambda p, x: np.dot(p[-nd:],np.stack([d.cdf(x, *p[self.slices[i]]) for i,d in enumerate(self.dists)]))
+        self.pdf_fun = lambda p, x: np.dot(p[-nd:],np.stack([d.pdf(x, *p[self.slices[i]]) for i,d in enumerate(self.dists)]))        
+        self.percentiles = np.array(range(0,101))/100.
+        self.obj_fun = lambda p: np.sum((self.cdf_fun(p,self.xvals) - self.percentiles)**2)
 
     def _make_feasable(self, p):
         nd = len(self.dists)
         p1 = 1.*p;
         p1[-nd:] /= sum(p1[-nd:])
         return p1
+
+    def _clamp_weights(self, p, mixture_weights):
+        nd = len(self.dists)
+        p1 = 1.*p
+        p1[-nd:] = mixture_weights
+        return p1
+
     
-    def fit(self, data):
+    def fit(self, data, mixture_weights = [], **kwargs):
         self._determine_num_dist_params(data)
         self._determine_bounds(data)
         self._determine_objective_function(data)
-        results = de(self.obj_fun, self.bounds, constraints = [lambda p: self._make_feasable(p)])
+        if mixture_weights and type(mixture_weights) is float:
+            mixture_weights = [mixture_weights]*len(self.dists)
+        if mixture_weights:
+            print "Clamping mixture weights to {}".format(mixture_weights)
+        results = de(self.obj_fun, self.bounds, constraints = [lambda p: self._make_feasable(p)] if not mixture_weights else [lambda p: self._clamp_weights(p, mixture_weights)], **kwargs)
+        self.best = results["best"]
+        self.history = results["history"]
+        print "FIT RESULTS"
+        for i, d in enumerate(self.dists):
+            print "{} x Dist 1 ({})".format(self.best[-len(self.dists)+i], self.best[self.slices[i]])
         return results
         
     
@@ -128,6 +145,8 @@ def de(obj_fun, bounds, constraints = [], n_iters = 1000, pop_size = 20, mut = 0
                     best_idx = j
                     best = pop[best_idx]
         history.append(fitness[best_idx])
+        if not (i % 100) or i == (n_iters-1):
+            print "iter{:>6d}: {}".format(i, history[-1])
     return {"best":best, "history":history}
 
 #def fit_mm_with_de(data, dists, prctiles = np.arange(0,101)):
