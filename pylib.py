@@ -2,7 +2,7 @@ import os, sys
 import numpy as np
 import time
 from datetime import datetime
-
+from matplotlib import pylab as plt
 class TimedBlock:
     def __init__(self, name):
         self.name = name
@@ -15,8 +15,39 @@ class TimedBlock:
     def __exit__(self, *args):
         print "{}: Finished {} in {:.2f} seconds.".format(datetime.now(), self.name, time.time() - self.start_time)
 
+# A class to wrap scipy random variables to keep them centered
+class CenteredRandomVariable:
+    def __init__(self, dist):
+        self.dist = dist
 
+        # find the index of the location parameter
+        p = dist.fit(np.random.rand(1000,), floc=0)
+        ind_loc = []
+        for i,pval in enumerate(p):
+            if pval == 0:
+                ind_loc.append(i)
+        if len(ind_loc) == 0:
+            raise ValueError("Could not determine location of location parameter.")
+        elif len(ind_loc) > 1:
+            raise ValueError("Index of location parameter is ambiguous.")
+        else:
+            self.ind_loc = ind_loc[0]
 
+        self.general2centered = lambda p: tuple(list(p[:self.ind_loc]) + list(p[(self.ind_loc+1):]))
+
+        # How to get the params from centered into 
+        self.centered2general = lambda p: tuple(list(p[:self.ind_loc]) + [0] + list(p[self.ind_loc:])) 
+        
+    def fit(self, data):
+        p = self.general2centered(self.dist.fit(data, floc=0))
+        return p
+    
+    def cdf(self, vals, *params):
+        return self.dist.cdf(vals, *(self.centered2general(params)))
+
+    def pdf(self, vals, *params):
+        return self.dist.pdf(vals, *(self.centered2general(params)))
+    
 class MixtureModel:
     def __init__(self, dists):
         self.dists = dists
@@ -66,11 +97,12 @@ class MixtureModel:
 
     def _determine_objective_function(self, data):
         nd = len(self.dists)
-        self.xvals = np.array([np.percentile(data, p) for p in range(0,101)])        
-        self.cdf_fun = lambda p, x: np.dot(p[-nd:],np.stack([d.cdf(x, *p[self.slices[i]]) for i,d in enumerate(self.dists)]))
+        #self.xvals = np.array([np.percentile(data, p) for p in range(0,101)])
+        self.xvals = np.linspace(-max(data), max(data),101);
+        self.yvals = np.array([np.mean(data<x) for x in self.xvals])
+        self.cdf_fun = lambda p, x: np.dot(p[-nd:],np.stack([d.cdf(x, *p[self.slices[i]]) for i,d in enumerate(self.dists)]))        
         self.pdf_fun = lambda p, x: np.dot(p[-nd:],np.stack([d.pdf(x, *p[self.slices[i]]) for i,d in enumerate(self.dists)]))        
-        self.percentiles = np.array(range(0,101))/100.
-        self.obj_fun = lambda p: np.sum((self.cdf_fun(p,self.xvals) - self.percentiles)**2)
+        self.obj_fun = lambda p: np.sum((self.cdf_fun(p,self.xvals) - self.yvals)**2)
 
     def _make_feasable(self, p):
         nd = len(self.dists)
@@ -84,6 +116,19 @@ class MixtureModel:
         p1[-nd:] = mixture_weights
         return p1
 
+    def plot_fit_cdf(self, data):
+        plt.fill_between(self.xvals, self.yvals,"gray",facecolor="gray",edgecolor="gray", label="data")
+        plt.plot(self.xvals, self.cdf_fun(self.best, self.xvals), "k",label="fit")
+        plt.legend()
+        
+    def plot_fit_pdf(self, data):
+        h,b = np.histogram(data, int(np.sqrt(len(data))), density=True)
+        b = (b[:-1] + b[1:])*0.5
+        plt.fill_between(b, h, edgecolor="gray", facecolor="gray",label="data")
+        for i,d in enumerate(self.dists):
+            plt.plot(self.xvals, self.best[-len(self.dists)+i]*d.pdf(self.xvals, *self.best[self.slices[i]]), label = "{}: {}".format(i, self.best[self.slices[i]]))
+        plt.plot(self.xvals, self.pdf_fun(self.best, self.xvals), "k", label="fit")
+        plt.legend(facecolor=None, frameon=False)
     
     def fit(self, data, mixture_weights = [], **kwargs):
         self._determine_num_dist_params(data)
@@ -92,6 +137,8 @@ class MixtureModel:
         if mixture_weights and type(mixture_weights) is float:
             mixture_weights = [mixture_weights]*len(self.dists)
         if mixture_weights:
+            if len(mixture_weights) != len(self.dists):
+                raise ValueError("Needed exactly {} mixture weights, got {}.".format(len(self.dists), len(mixture_weights)))
             print "Clamping mixture weights to {}".format(mixture_weights)
         results = de(self.obj_fun, self.bounds, constraints = [lambda p: self._make_feasable(p)] if not mixture_weights else [lambda p: self._clamp_weights(p, mixture_weights)], **kwargs)
         self.best = results["best"]
