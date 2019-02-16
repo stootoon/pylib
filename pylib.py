@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, re
 import numpy as np
 import time
 from datetime import datetime
@@ -20,6 +20,7 @@ class CenteredRandomVariable:
     def __init__(self, dist):
         self.dist = dist
 
+        self.name = "centered " + self.dist.name
         # find the index of the location parameter
         p = dist.fit(np.random.rand(1000,), floc=0)
         ind_loc = []
@@ -37,6 +38,9 @@ class CenteredRandomVariable:
 
         # How to get the params from centered into 
         self.centered2general = lambda p: tuple(list(p[:self.ind_loc]) + [0] + list(p[self.ind_loc:])) 
+
+    def __str__(self):
+        return self.name
         
     def fit(self, data):
         p = self.general2centered(self.dist.fit(data, floc=0))
@@ -50,7 +54,8 @@ class CenteredRandomVariable:
     
 class MixtureModel:
     def __init__(self, dists):
-        self.dists = dists
+        self.dists = dists        
+        self.names = [d.name for d in self.dists]
         self.bounds = []
 
     def _generate_random_parameters(self):
@@ -126,7 +131,7 @@ class MixtureModel:
         b = (b[:-1] + b[1:])*0.5
         plt.fill_between(b, h, edgecolor="gray", facecolor="gray",label="data")
         for i,d in enumerate(self.dists):
-            plt.plot(self.xvals, self.best[-len(self.dists)+i]*d.pdf(self.xvals, *self.best[self.slices[i]]), label = "{}: {}".format(i, self.best[self.slices[i]]))
+            plt.plot(self.xvals, self.best[-len(self.dists)+i]*d.pdf(self.xvals, *self.best[self.slices[i]]), label = "{}: {}".format(d.name, self.best[self.slices[i]]))
         plt.plot(self.xvals, self.pdf_fun(self.best, self.xvals), "k", label="fit")
         plt.legend(facecolor=None, frameon=False)
     
@@ -145,7 +150,7 @@ class MixtureModel:
         self.history = results["history"]
         print "FIT RESULTS"
         for i, d in enumerate(self.dists):
-            print "{} x Dist 1 ({})".format(self.best[-len(self.dists)+i], self.best[self.slices[i]])
+            print "{: 6.2f} x {} ({})".format(self.best[-len(self.dists)+i], self.names[i], self.best[self.slices[i]])
         return results
         
     
