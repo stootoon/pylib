@@ -1,8 +1,44 @@
-import os, sys, re
+import os, sys, re, types
 import numpy as np
 import time
 from datetime import datetime
 from matplotlib import pylab as plt
+from scipy import fft
+
+def spectrum(x, fs = 1., color = None, plot_fun = None, mean_subtract = False, mark_peak = False):
+    if mean_subtract:
+        x -= np.mean(x)
+    f = fft(x)
+    freqs = np.arange(len(x))/float(len(x))*fs
+    if mark_peak:
+        print "Peak AC frequency: {:.1f} Hz".format(freqs[(freqs>0)&(freqs<0.5*fs) ][np.argmax(abs(f[(freqs>0)&(freqs<0.5*fs)]))])
+    if plot_fun:
+        plot_fun(freqs, abs(f), color=color) if color else plot_fun(freqs, abs(f))
+        plt.xlim(0,0.5*fs)
+        plt.xlabel("frequency / Hz")
+        plt.ylabel("|X(f)|")
+    return f, freqs
+
+def find_runs(f):
+    runs = []
+    in_run = False
+    for i,fi in enumerate(f):
+        if in_run:
+            if fi:
+                this_run.append(i)
+            else:
+                runs.append(this_run)
+                in_run = False
+        else:
+            if fi:
+                this_run = [i]
+                in_run = True
+    else:
+        if in_run:
+            runs.append(this_run)
+
+    return runs                       
+
 class TimedBlock:
     def __init__(self, name):
         self.name = name
@@ -136,16 +172,34 @@ class MixtureModel:
         plt.legend(facecolor=None, frameon=False)
     
     def fit(self, data, mixture_weights = [], **kwargs):
+
+        if "constraints" in kwargs:
+            raise ValueError("Named arguments to fit can't contain an entry for 'constraints'.")
+        
         self._determine_num_dist_params(data)
         self._determine_bounds(data)
         self._determine_objective_function(data)
-        if mixture_weights and type(mixture_weights) is float:
-            mixture_weights = [mixture_weights]*len(self.dists)
+
+        # Set up the constraints based on the argument supplied as mixture_weight
         if mixture_weights:
-            if len(mixture_weights) != len(self.dists):
-                raise ValueError("Needed exactly {} mixture weights, got {}.".format(len(self.dists), len(mixture_weights)))
-            print "Clamping mixture weights to {}".format(mixture_weights)
-        results = de(self.obj_fun, self.bounds, constraints = [lambda p: self._make_feasable(p)] if not mixture_weights else [lambda p: self._clamp_weights(p, mixture_weights)], **kwargs)
+            if type(mixture_weights) is types.FunctionType: # It was a function, use it directly
+                constraint = mixture_weights
+            elif type(mixture_weights) is float:
+                if not np.allclose(mixture_weights*len(self.dists), 1):
+                    mixture_weights = [mixture_weights] + [(1. - mixture_weights)/(len(self.dists)-1)]*(len(self.dists)-1)
+                else:
+                    mixture_weights = [mixture_weights]*len(self.dists) 
+                constraint = lambda p: self._clamp_weights(p, mixture_weights)
+            else:
+                if len(mixture_weights) != len(self.dists):
+                    raise ValueError("Number of mixture weights {} did not equal number of distributions {}.".format(len(mixture_weights), len(self.dists)))
+                if not np.allclose(sum(mixture_weights), 1):
+                    raise ValueError("Mixture weights must sum to 1, but actually sum to {}".format(sum(mixture_weights)))
+                constraint = lambda p: self._clamp_weights(p, mixture_weights)
+        else:
+            constraint = lambda p: self._make_feasable(p)
+
+        results = de(self.obj_fun, self.bounds, self._generate_random_parameters, constraints = [constraint], **kwargs)
         self.best = results["best"]
         self.history = results["history"]
         print "FIT RESULTS"
@@ -154,7 +208,7 @@ class MixtureModel:
         return results
         
     
-def de(obj_fun, bounds, constraints = [], n_iters = 1000, pop_size = 20, mut = 0.8, crossp = 0.7):
+def de(obj_fun, bounds, generate_random_parameters, constraints = [], n_iters = 1000, pop_size = 20, mut = 0.8, crossp = 0.7):
     """ Optimize OBJ_FUN using differential evolution.
     BOUNDS: A list of (min,max) tuples.
     CONSTRAINTS: A list of functions that project parameters into the feasable set. These should be
@@ -174,7 +228,7 @@ def de(obj_fun, bounds, constraints = [], n_iters = 1000, pop_size = 20, mut = 0
     lbnds  = [b[0] for b in bounds]
     ubnds  = [b[1] for b in bounds]
 
-    pop   = np.stack([generate_random_parameters(bounds, constraints) for i in range(pop_size)])
+    pop   = np.stack([generate_random_parameters() for i in range(pop_size)])
 
     fitness  = [obj_fun(p) for p in pop]
     best_idx = np.argmin(fitness)
