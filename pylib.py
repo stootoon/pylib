@@ -4,6 +4,155 @@ import time
 from datetime import datetime
 from matplotlib import pylab as plt
 from scipy import fft
+from collections import namedtuple
+import logging
+class Tokens:
+    def __init__(self, tokens):
+        self.tokens = tokens
+
+    def any(self, needles):
+        return len(set(needles) & set(self.tokens))>0        
+
+    def all(self, needles):
+        return len(set(needles) & set(self.tokens)) == len(needles)
+
+    def __contains__(self, item):
+        return item in self.tokens
+
+def progn(*args):
+    for a in args:
+        a()
+        
+def matplotlib_whisperer(text):
+
+    tokens = text.split(" ")
+
+    T = Tokens(tokens)
+
+    action = None
+    location = None
+    obj = None
+
+    if T.any(["set", "on", "show"]):
+        action = "set"
+    
+    if T.any(["no", "remove", "delete", "off", "hide"]):
+        action = "remove"
+
+    if T.any(["bottom", "below", "lower"]):
+        location = "bottom"
+
+    if "left" in T:
+        location = "left"
+        
+    if "right" in T:
+        location = "right"
+        
+    if T.any(["top", "above", "upper"]):
+        location = "top"
+
+    if T.all(["legend", "background"]):
+        obj = "legend_background"
+        
+    if T.all(["x", "ticks"]) or T.any(["x-ticks", "xticks"]):
+        if "minor" in T:
+            obj = "xminortticks"
+        else:
+            obj = "xticks"
+
+    if "ticks" in T and "x" not in T and "y" not in T:
+        if "minor" in T:
+            obj = "minorticks"
+        else:
+            obj = "ticks"
+
+    if "grid" in T and "x" not in T and "y" not in T:
+        if "minor" in T:
+            obj = "minorgrid"
+        else:
+            obj = "grid"
+            
+    if T.all(["y", "ticks"]) or T.any(["y-ticks", "yticks"]):
+        if "minor" in T:
+            obj = "yminorticks"
+        else:
+            obj = "yticks"
+
+    if T.all(["x", "grid"]):
+        if "minor" in T:
+            obj = "xminorgrid"
+        else:
+            obj = "xgrid"
+
+    if T.all(["y", "grid"]):
+        if "minor" in T:
+            obj = "yminorgrid"
+        else:
+            obj = "ygrid"
+            
+    if T.all(["x", "tick", "labels"]) or T.any(["xticklabels"]):
+        obj = "xticklabels"
+        
+    if T.all(["y", "tick", "labels"]) or T.any(["yticklabels"]):
+        obj = "yticklabels"
+
+    ax = plt.gca()
+    logging.basicConfig()
+    log = logging.getLogger("whisperer")
+    log.debug("  action: '{}'".format(action))
+    log.debug("  object: '{}'".format(obj))
+    log.debug("location: '{}'".format(location))
+    maps = [
+        {"action":[None, "set"], "obj":"xticks", "location":"bottom",  "do": lambda: ax.xaxis.set_ticks_position("bottom"), "msg": "Set xticks position to bottom."},
+        {"action":[None, "set"], "obj":"xticks", "location":"top",     "do": lambda: ax.xaxis.set_ticks_position("top"),    "msg": "Set xticks position to top."},
+        {"action":[None, "set"], "obj":"yticks", "location":"left",    "do": lambda: ax.yaxis.set_ticks_position("left"),   "msg": "Set yticks position to top."},
+        {"action":[None, "set"], "obj":"yticks", "location":"right",   "do": lambda: ax.yaxis.set_ticks_position("right"),  "msg": "Set yticks position to right."},
+        {"action":"set",    "obj":"minorgrid", "location":None,    "do": lambda: plt.grid(True, which="minor", axis="both"), "msg": "Showing minor grid."},
+        {"action":"set",    "obj":"yminorgrid", "location":None,   "do": lambda: plt.grid(True, which="minor", axis="y"), "msg": "Showing minor y grid."},
+        {"action":"set",    "obj":"xminorgrid", "location":None,   "do": lambda: plt.grid(True, which="minor", axis="x"), "msg": "Showing minor x grid."},        
+        {"action":"remove",  "obj":"yticks", "location":None,   "do": lambda: ax.yaxis.set_ticks([]),       "msg": "Removed yticks."},
+        {"action":"remove",  "obj":"yticks", "location":None,   "do": lambda: ax.yaxis.set_ticklabels([]),  "msg": "Removed ytick labels."},        
+        {"action":"remove",  "obj":"xticks", "location":None,   "do": lambda: ax.xaxis.set_ticks([]),       "msg": "Removed xticks."},
+        {"action":"remove",  "obj":"xticks", "location":None,   "do": lambda: ax.xaxis.set_ticklabels([]),  "msg": "Removed xtick labels."},
+        {"action":"remove",  "obj":"legend_background", "location":None, "do":
+         lambda: progn(
+             lambda: plt.legend().get_frame().set_facecolor('none'),
+             lambda: plt.legend().get_frame().set_linewidth(0)),
+         "msg": "Removed legend background."},
+    ]
+
+    def check_match(m):
+        mm = {f: v if type(m[f]) is list else [m[f]] for f,v in m.iteritems()}
+        if action not in mm["action"]:
+            return False
+        if obj not in mm["obj"]:
+            return False
+        if location not in mm["location"]:
+            return False
+        return True
+        
+    # Find matches
+    for m in maps:
+        if check_match(m):
+            m["do"]()
+            log.info(m["msg"])
+            return
+    log.warning("No actions found for {}: ".format(text))
+            
+                
+              
+              
+    
+    
+        
+
+def rms_error(x,y, verbose = True):
+    err = np.sqrt(np.mean((x-y)**2))
+    if verbose:
+        print "RMS error: {}".format(err)
+
+    return err
+    
 
 def spectrum(x, fs = 1., color = None, plot_fun = None, mean_subtract = False, mark_peak = False):
     if mean_subtract:
@@ -157,21 +306,28 @@ class MixtureModel:
         p1[-nd:] = mixture_weights
         return p1
 
-    def plot_fit_cdf(self, data):
-        plt.fill_between(self.xvals, self.yvals,"gray",facecolor="gray",edgecolor="gray", label="data")
+    def plot_fit_cdf(self, data = None, color="gray"):
+        if not data:
+            data = self.data
+        plt.fill_between(self.xvals, self.yvals,facecolor=color,edgecolor=color, label="data")
         plt.plot(self.xvals, self.cdf_fun(self.best, self.xvals), "k",label="fit")
         plt.legend()
         
-    def plot_fit_pdf(self, data):
+    def plot_fit_pdf(self, data = None, color="gray"):
+        if not data:
+            data = self.data
         h,b = np.histogram(data, int(np.sqrt(len(data))), density=True)
         b = (b[:-1] + b[1:])*0.5
-        plt.fill_between(b, h, edgecolor="gray", facecolor="gray",label="data")
+        plt.fill_between(b, h, edgecolor=color, facecolor=color,label="data")
         for i,d in enumerate(self.dists):
-            plt.plot(self.xvals, self.best[-len(self.dists)+i]*d.pdf(self.xvals, *self.best[self.slices[i]]), label = "{}: {}".format(d.name, self.best[self.slices[i]]))
+            param_str = ", ".join(["{:.3f}".format(f) for f in self.best[self.slices[i]]])
+            plt.plot(self.xvals, self.best[-len(self.dists)+i]*d.pdf(self.xvals, *self.best[self.slices[i]]), label = "{}: ({})".format(d.name, param_str))
         plt.plot(self.xvals, self.pdf_fun(self.best, self.xvals), "k", label="fit")
         plt.legend(facecolor=None, frameon=False)
     
     def fit(self, data, mixture_weights = [], **kwargs):
+
+        self.data = data
 
         if "constraints" in kwargs:
             raise ValueError("Named arguments to fit can't contain an entry for 'constraints'.")
