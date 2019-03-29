@@ -5,6 +5,9 @@ from datetime import datetime
 from matplotlib import pylab as plt
 from scipy import fft
 from collections import namedtuple
+from pylib.utils import progn
+from functools import reduce
+
 import logging
 class Tokens:
     def __init__(self, tokens):
@@ -18,10 +21,6 @@ class Tokens:
 
     def __contains__(self, item):
         return item in self.tokens
-
-def progn(*args):
-    for a in args:
-        a()
         
 def matplotlib_whisperer(text):
 
@@ -139,20 +138,12 @@ def matplotlib_whisperer(text):
             return
     log.warning("No actions found for {}: ".format(text))
             
-                
-              
-              
-    
-    
-        
-
 def rms_error(x,y, verbose = True):
     err = np.sqrt(np.mean((x-y)**2))
     if verbose:
-        print "RMS error: {}".format(err)
+        print("RMS error: {}".format(err))
 
     return err
-    
 
 def spectrum(x, fs = 1., color = None, plot_fun = None, mean_subtract = False, mark_peak = False):
     if mean_subtract:
@@ -160,7 +151,7 @@ def spectrum(x, fs = 1., color = None, plot_fun = None, mean_subtract = False, m
     f = fft(x)
     freqs = np.arange(len(x))/float(len(x))*fs
     if mark_peak:
-        print "Peak AC frequency: {:.1f} Hz".format(freqs[(freqs>0)&(freqs<0.5*fs) ][np.argmax(abs(f[(freqs>0)&(freqs<0.5*fs)]))])
+        print("Peak AC frequency: {:.1f} Hz".format(freqs[(freqs>0)&(freqs<0.5*fs) ][np.argmax(abs(f[(freqs>0)&(freqs<0.5*fs)]))]))
     if plot_fun:
         plot_fun(freqs, abs(f), color=color) if color else plot_fun(freqs, abs(f))
         plt.xlim(0,0.5*fs)
@@ -194,11 +185,11 @@ class TimedBlock:
         pass
 
     def __enter__(self):
-        print "{}: Started {}.".format(datetime.now(), self.name)
+        print("{}: Started {}.".format(datetime.now(), self.name))
         self.start_time = time.time()
 
     def __exit__(self, *args):
-        print "{}: Finished {} in {:.2f} seconds.".format(datetime.now(), self.name, time.time() - self.start_time)
+        print("{}: Finished {} in {:.2f} seconds.".format(datetime.now(), self.name, time.time() - self.start_time))
 
 # A class to wrap scipy random variables to keep them centered
 class CenteredRandomVariable:
@@ -358,9 +349,9 @@ class MixtureModel:
         results = de(self.obj_fun, self.bounds, self._generate_random_parameters, constraints = [constraint], **kwargs)
         self.best = results["best"]
         self.history = results["history"]
-        print "FIT RESULTS"
+        print("FIT RESULTS")
         for i, d in enumerate(self.dists):
-            print "{: 6.2f} x {} ({})".format(self.best[-len(self.dists)+i], self.names[i], self.best[self.slices[i]])
+            print("{: 6.2f} x {} ({})".format(self.best[-len(self.dists)+i], self.names[i], self.best[self.slices[i]]))
         return results
         
     
@@ -392,7 +383,7 @@ def de(obj_fun, bounds, generate_random_parameters, constraints = [], n_iters = 
     history  = [min(fitness)]
     for i in range(n_iters):
         for j in range(pop_size):
-            ids = range(j) + range(j+1,pop_size)
+            ids = list(range(j)) + list(range(j+1,pop_size))
             a,b,c = pop[np.random.choice(ids, 3, replace=False)]
             mutant = apply_constraints(np.clip(a + mut*(b-c), lbnds, ubnds))
             cross_points = np.random.rand(n_dims) < crossp
@@ -408,7 +399,7 @@ def de(obj_fun, bounds, generate_random_parameters, constraints = [], n_iters = 
                     best = pop[best_idx]
         history.append(fitness[best_idx])
         if not (i % 100) or i == (n_iters-1):
-            print "iter{:>6d}: {}".format(i, history[-1])
+            print("iter{:>6d}: {}".format(i, history[-1]))
     return {"best":best, "history":history}
 
 #def fit_mm_with_de(data, dists, prctiles = np.arange(0,101)):
