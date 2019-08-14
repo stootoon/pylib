@@ -121,7 +121,7 @@ def matplotlib_whisperer(text):
     ]
 
     def check_match(m):
-        mm = {f: v if type(m[f]) is list else [m[f]] for f,v in m.iteritems()}
+        mm = {f: v if type(m[f]) is list else [m[f]] for f,v in m.items()}
         if action not in mm["action"]:
             return False
         if obj not in mm["obj"]:
